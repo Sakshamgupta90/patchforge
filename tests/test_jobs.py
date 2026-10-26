@@ -85,3 +85,34 @@ def test_bad_repo_name_rejected(fake_github):
 def test_branch_name():
     assert branch_name("Patch CVE-2026-1234 in Requests!!", "abcdef123") == "patchforge/patch-cve-2026-1234-in-requests-abcdef"
     assert branch_name("???", "abcdef") == "patchforge/patch-abcdef"
+
+
+
+def test_identical_final_check_is_reused(fake_github):
+    from patchforge.sandbox import FakeSandbox
+
+    class Counting(FakeSandbox):
+        def __init__(self):
+            super().__init__([SandboxResult(passed=True)])
+
+    box = Counting()
+    job = runner(fake_github, sandbox_factory=lambda: box).run_sync(JobRequest(repo="me/demo", instruction="x"))
+    assert job.status == "succeeded", job.error
+    # before-check + the agent's check; the final check on the same code reuses the agent's result
+    assert len(box.calls) == 2
+    assert any("reusing its result" in e["message"] for e in job.events)
+
+
+def test_project_without_tests_gets_a_draft_pr(fake_github):
+    unverified = SandboxResult(passed=True, checked="compile")
+    job = runner(fake_github, sandbox_factory=lambda: FakeSandbox([unverified])).run_sync(
+        JobRequest(repo="me/demo", instruction="x"))
+    assert job.status == "succeeded", job.error
+    pr = fake_github.prs[0]
+    assert pr["draft"] is True and "Not verified by tests" in pr["body"]
+    assert job.snapshot()["verified"] is False and job.snapshot()["checked"] == "compile"
+
+
+def test_verified_pr_is_not_a_draft(fake_github):
+    job = runner(fake_github, sandbox_factory=AlwaysPassSandbox).run_sync(JobRequest(repo="me/demo", instruction="x"))
+    assert fake_github.prs[0]["draft"] is False and job.snapshot()["verified"] is True

@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PatchForge</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M10 22V10h7a4 4 0 0 1 0 8h-7' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f7f7f8;
+    --card: #ffffff;
+    --border: #e7e7ea;
+    --text: #18181b;
+    --text-2: #52525b;
+    --text-3: #8b8b94;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --accent-soft: #eef2ff;
+    --good: #15803d;
+    --good-soft: #ecfdf3;
+    --bad: #b91c1c;
+    --bad-soft: #fef2f2;
+    --warn: #a15c07;
+    --warn-soft: #fff7e6;
+    --shadow: 0 1px 2px rgba(16, 16, 24, .04), 0 4px 16px rgba(16, 16, 24, .04);
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg: #0f0f12; --card: #17171b; --border: #26262c;
+      --text: #f4f4f5; --text-2: #b4b4bc; --text-3: #7c7c86;
+      --accent: #818cf8; --accent-hover: #a5b4fc; --accent-soft: #1e1b3a;
+      --good: #4ade80; --good-soft: #0f2a1a; --bad: #f87171; --bad-soft: #2e1515; --warn: #fbbf24; --warn-soft: #2e2410;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f0f12; --card: #17171b; --border: #26262c;
+    --text: #f4f4f5; --text-2: #b4b4bc; --text-3: #7c7c86;
+    --accent: #818cf8; --accent-hover: #a5b4fc; --accent-soft: #1e1b3a;
+    --good: #4ade80; --good-soft: #0f2a1a; --bad: #f87171; --bad-soft: #2e1515; --warn: #fbbf24; --warn-soft: #2e2410;
+    --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+
+  header { border-bottom: 1px solid var(--border); background: var(--card); }
+  header .wrap { display: flex; align-items: center; gap: 10px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; color: var(--text); }
+  .brand:hover { text-decoration: none; }
+
+  .hero { padding: 40px 0 20px; }
+  .hero h1 { font-size: 28px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -.02em; }
+  .hero p { margin: 0; color: var(--text-2); max-width: 560px; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+  .pad { padding: 20px; }
+  section { margin-bottom: 28px; }
+  .section-title { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; justify-content: space-between; margin: 0 0 10px; }
+  .section-title h2 { font-size: 14px; font-weight: 600; margin: 0; color: var(--text-2); }
+
+  label { display: block; font-size: 13px; font-weight: 550; margin: 0 0 6px; }
+  .field + .field { margin-top: 16px; }
+  .hint { font-size: 12.5px; color: var(--text-3); margin-top: 6px; }
+  input, select {
+    width: 100%; height: 42px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font: inherit;
+  }
+  select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%), linear-gradient(135deg, var(--text-3) 50%, transparent 50%); background-position: calc(100% - 18px) 18px, calc(100% - 13px) 18px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 32px; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip {
+    font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--text-2);
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 42px; padding: 0 18px;
+    border: 0; border-radius: 9px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { background: var(--accent-hover); text-decoration: none; }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .btn.block { width: 100%; margin-top: 20px; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn.ghost:hover { border-color: var(--text-3); }
+
+  .rows { list-style: none; margin: 0; padding: 0; }
+  .rows li + li { border-top: 1px solid var(--border); }
+  .row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; color: var(--text); }
+  .row:hover { background: var(--bg); text-decoration: none; }
+  .rows li:first-child .row { border-radius: 14px 14px 0 0; }
+  .rows li:last-child .row { border-radius: 0 0 14px 14px; }
+  .rows li:only-child .row { border-radius: 14px; }
+  .row .main { min-width: 0; flex: 1; }
+  .row .t { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .s { font-size: 13px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { font-size: 13px; color: var(--text-3); white-space: nowrap; text-align: right; }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+  .badge.succeeded { background: var(--good-soft); color: var(--good); }
+  .badge.failed { background: var(--bad-soft); color: var(--bad); }
+  .badge.running, .badge.queued { background: var(--accent-soft); color: var(--accent); }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .status-dot.succeeded { background: var(--good); }
+  .status-dot.failed { background: var(--bad); }
+  .status-dot.running, .status-dot.queued { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .skills { display: flex; flex-wrap: wrap; gap: 8px; }
+  .skill { font-size: 13px; padding: 6px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--card); }
+  .skill b { font-weight: 600; }
+  .skill span { color: var(--text-3); }
+
+  .back { display: inline-block; margin: 24px 0 14px; font-size: 14px; color: var(--text-2); }
+  .job-head { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; }
+  .job-head h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; overflow-wrap: break-word; }
+  .job-head p { margin: 4px 0 0; color: var(--text-2); }
+
+  .stepper { display: flex; margin: 24px 0 4px; }
+  .step { flex: 1; position: relative; text-align: center; font-size: 13px; color: var(--text-3); }
+  .step::before { content: ""; position: absolute; top: 13px; left: -50%; right: 50%; height: 2px; background: var(--border); }
+  .step:first-child::before { display: none; }
+  .step.done::before, .step.active::before, .step.fail::before { background: var(--accent); }
+  .step .circle {
+    position: relative; z-index: 1; width: 28px; height: 28px; margin: 0 auto 6px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--card); border: 2px solid var(--border); font-size: 13px; font-weight: 700;
+  }
+  .step.done { color: var(--text); }
+  .step.done .circle { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .step.active { color: var(--accent); font-weight: 600; }
+  .step.active .circle { border-color: var(--accent); }
+  .step.active .circle::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  .step.fail { color: var(--bad); font-weight: 600; }
+  .step.fail .circle { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+  .live { margin-top: 18px; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px;
+    background: var(--accent-soft); font-size: 14px; }
+  .live .spin { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid var(--accent);
+    border-right-color: transparent; animation: spin .8s linear infinite; }
+  .live .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .live time { color: var(--text-3); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .result { margin-top: 20px; padding: 16px 18px; border-radius: 12px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .result.ok { background: var(--good-soft); }
+  .result.bad { background: var(--bad-soft); }
+  .result.warn { background: var(--warn-soft); }
+  .result.warn .msg b { color: var(--warn); }
+  .result .msg { flex: 1; min-width: 200px; }
+  .result .msg b { display: block; }
+  .result.ok .msg b { color: var(--good); }
+  .result.bad .msg b { color: var(--bad); }
+  .result .msg span { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border-top: 1px solid var(--border); border-radius: 0 0 14px 14px; overflow: hidden; }
+  .stat { background: var(--card); padding: 14px 18px; }
+  .stat .k { font-size: 12.5px; color: var(--text-3); }
+  .stat .v { font-size: 20px; font-weight: 650; margin-top: 2px; }
+  @media (max-width: 600px) { .stats { grid-template-columns: repeat(2, 1fr); } .hero h1 { font-size: 24px; } }
+
+  .timeline { list-style: none; margin: 0; padding: 6px 0; max-height: 460px; overflow: auto; }
+  .timeline li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; padding: 9px 18px; font-size: 14px; }
+  .timeline .mark { width: 8px; height: 8px; border-radius: 50%; background: var(--border); margin-top: 7px; justify-self: center; }
+  .timeline li.warning .mark { background: #d97706; }
+  .timeline li.error .mark { background: var(--bad); }
+  .timeline li.model .mark { background: var(--accent); }
+  .timeline .what { overflow-wrap: anywhere; }
+  .timeline .what small { display: block; color: var(--text-3); font-size: 12.5px; }
+  .timeline time { color: var(--text-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+  details { border-top: 1px solid var(--border); }
+  summary { cursor: pointer; padding: 14px 18px; font-size: 14px; font-weight: 550; color: var(--text-2); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 18px; text-align: left; border-top: 1px solid var(--border); }
+  th { color: var(--text-3); font-weight: 550; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll-x { overflow-x: auto; }
+  .muted { color: var(--text-3); }
+  .user { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .user img { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); }
+  .linkbtn { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--text-3); cursor: pointer; }
+  .linkbtn:hover { color: var(--text); }
+  .btn.github { background: #1f2328; height: 46px; padding: 0 22px; font-size: 15px; }
+  .btn.github:hover { background: #32383f; }
+  :root[data-theme="dark"] .btn.github { background: #f4f4f5; color: #18181b; }
+  @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .btn.github { background: #f4f4f5; color: #18181b; } }
+  .landing { padding: 64px 0 24px; text-align: center; }
+  .landing h1 { font-size: 36px; line-height: 1.15; letter-spacing: -.025em; margin: 0 auto 14px; max-width: 600px; }
+  .landing > p { color: var(--text-2); max-width: 540px; margin: 0 auto 28px; font-size: 16px; }
+  .landing .fine { font-size: 13px; color: var(--text-3); margin-top: 14px; }
+  .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 44px 0 8px; text-align: left; }
+  .how .card { padding: 16px; }
+  .how b { display: block; margin-bottom: 4px; }
+  .how span { font-size: 13.5px; color: var(--text-2); }
+  .how .num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; margin-bottom: 10px; }
+  @media (max-width: 640px) { .how { grid-template-columns: 1fr; } .landing h1 { font-size: 28px; } .landing { padding-top: 40px; } }
+  .banner { margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; font-size: 14px; background: var(--bad-soft); color: var(--bad); }
+  .banner.ok { background: var(--good-soft); color: var(--good); }
+  .notice { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--bad-soft); font-size: 13.5px; }
+  .notice p { margin: 0 0 10px; color: var(--text); }
+  .notice .btn { height: 36px; font-size: 13.5px; }
+  footer { padding: 24px 0 40px; font-size: 12.5px; color: var(--text-3); text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="#/">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M10 22V10h7a4 4 0 0 1 0 8h-7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      PatchForge
+    </a>
+    <div class="user" id="user"></div>
+  </div>
+</header>
+<main class="wrap" id="view"></main>
+<footer>Patches are tested in an isolated sandbox. A pull request is opened only when the tests pass.</footer>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const compact = (n) => Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n || 0);
+const money = (n) => "$" + ((n || 0) >= 0.01 ? n.toFixed(2) : (n || 0).toFixed(4));
+const dur = (s) => s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${(s || 0).toFixed(s < 10 ? 1 : 0)}s`;
+const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`; };
+const store = { get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+const STEPS = [
+  { name: "Prepare", stages: ["clone", "baseline_tests"] },
+  { name: "Research", stages: ["research", "skill"] },
+  { name: "Patch", stages: ["plan", "patch", "retry"] },
+  { name: "Verify", stages: ["tests"] },
+  { name: "Pull request", stages: ["push", "pr", "done"] },
+];
+const EXAMPLES = ["Upgrade pydantic to v2", "Upgrade Flask to the latest version", "Patch the security vulnerability in requests"];
+
+const state = { health: {}, me: null, github: {}, repos: null, reposError: "", jobs: [], skills: [], source: null, flash: null };
+
+class ApiError extends Error {
+  constructor(status, detail) {
+    super(typeof detail === "string" ? detail : detail?.message || `Request failed (${status})`);
+    this.status = status; this.detail = detail;
+  }
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts, headers: { "Content-Type": "application/json" } });
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 401 && state.me) { state.me = null; route(); }
+  if (!r.ok) throw new ApiError(r.status, body.detail);
+  return body;
+}
+
+// ---------- Signed out ----------
+function renderLanding() {
+  const enabled = state.health.sign_in_enabled;
+  $("#user").innerHTML = "";
+  $("#view").innerHTML = `
+    ${state.flash ? `<div class="banner ${state.flash.ok ? "ok" : ""}">${esc(state.flash.text)}</div>` : ""}
+    <div class="landing">
+      <h1>Dependency upgrades that ship with passing tests</h1>
+      <p>PatchForge reads today's migration guide, rewrites your code for the new version,
+        proves it in a sandbox, and opens a pull request on your repository.</p>
+      ${enabled ? `<a class="btn github" href="/auth/login">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Sign in with GitHub</a>
+        <div class="fine">You choose which repositories PatchForge can access. Nothing is changed without a pull request.</div>`
+      : `<div class="card pad" style="max-width:520px;margin:0 auto;text-align:left">Sign in isn't configured on this server yet.
+          Set <code>GITHUB_CLIENT_ID</code> and <code>GITHUB_CLIENT_SECRET</code> (see “Create the GitHub App” in the README).</div>`}
+      <div class="how">
+        <div class="card"><span class="num">1</span><b>Connect a repository</b><span>Sign in and install PatchForge on the repositories you choose.</span></div>
+        <div class="card"><span class="num">2</span><b>Describe the upgrade</b><span>“Upgrade pydantic to v2” or “Patch the vulnerability in requests”.</span></div>
+        <div class="card"><span class="num">3</span><b>Review the pull request</b><span>Opened only when your tests pass in an isolated sandbox.</span></div>
+      </div>
+    </div>`;
+}
+
+// ---------- Signed in ----------
+function renderUser() {
+  const me = state.me;
+  $("#user").innerHTML = me ? `
+    ${me.avatar_url ? `<img src="${esc(me.avatar_url)}" alt="">` : ""}<span>${esc(me.login)}</span>
+    <button class="linkbtn" id="logout">Sign out</button>` : "";
+  $("#logout")?.addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    state.me = null; state.repos = null; state.jobs = []; location.hash = "#/"; route();
+  });
+}
+
+async function loadRepos(refresh = false) {
+  try { state.repos = await api(`/github/repos${refresh ? "?refresh=true" : ""}`); state.reposError = ""; }
+  catch (e) { state.repos = []; state.reposError = e.message; }
+  if (!location.hash.startsWith("#/jobs/")) renderHome();
+}
+
+function renderHome() {
+  if (!state.me) return renderLanding();
+  const g = state.github, repos = (state.repos || []).filter((r) => r.can_write);
+  const loading = state.repos === null;
+  const typedRepo = $("#repo")?.value ?? store.get("pf.repo");
+  const typed = $("#instruction")?.value || "";
+
+  const access = loading ? "Loading your repositories…"
+    : repos.length ? `${repos.length} repositor${repos.length === 1 ? "y" : "ies"} with PatchForge installed.
+        ${g.install_url ? `<a href="${esc(g.install_url)}">Add repositories</a>` : ""}`
+    : `PatchForge isn't installed on any of your repositories yet.
+        ${g.install_url ? `<a href="${esc(g.install_url)}">Install it on a repository</a>` : ""}`;
+
+  $("#view").innerHTML = `
+    ${state.flash ? `<div class="banner ${state.flash.ok ? "ok" : ""}">${esc(state.flash.text)}</div>` : ""}
+    <div class="hero">
+      <h1>Upgrade a dependency</h1>
+      <p>PatchForge reads the latest migration guide, patches your code, tests it in a sandbox and opens a pull request.</p>
+    </div>
+    <section>
+      <form class="card pad" id="form">
+        <div class="field">
+          <label for="repo">Repository</label>
+          <input id="repo" list="repo-list" required placeholder="owner/name or https://github.com/owner/name" autocomplete="off" spellcheck="false">
+          <datalist id="repo-list">${repos.map((r) => `<option value="${esc(r.full_name)}">${r.private ? "private" : "public"}</option>`).join("")}</datalist>
+          <div class="hint">${access}</div>
+        </div>
+        <div class="field" id="folder-field" hidden>
+          <label for="folder">Project</label>
+          <select id="folder"></select>
+          <div class="hint">This repository contains several projects. Pick the one to upgrade.</div>
+        </div>
+        <div class="field">
+          <label for="instruction">What should PatchForge do?</label>
+          <input id="instruction" required placeholder="e.g. Upgrade pydantic to v2" autocomplete="off">
+          <div class="chips">${EXAMPLES.map((e) => `<button type="button" class="chip">${esc(e)}</button>`).join("")}</div>
+        </div>
+        <button class="btn block" id="start" type="submit">Start upgrade</button>
+        <div id="form-msg" role="alert"></div>
+      </form>
+    </section>
+    <div id="lists"></div>`;
+  $("#repo").value = typedRepo || (repos.length === 1 ? repos[0].full_name : "");
+  $("#instruction").value = typed;
+  renderLists();
+  $("#repo").addEventListener("change", loadProjects);
+  projectsFor = null;  // the form was just re-drawn, so the picker needs filling again
+  loadProjects();
+
+  const f = $("#form");
+  f.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => { $("#instruction").value = c.textContent; $("#instruction").focus(); }));
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("#start"), msg = $("#form-msg");
+    btn.disabled = true; btn.textContent = "Checking access…"; msg.innerHTML = "";
+    try {
+      store.set("pf.repo", $("#repo").value.trim());
+      const job = await api("/jobs", { method: "POST", body: JSON.stringify({
+        repo: $("#repo").value.trim(), instruction: $("#instruction").value.trim(),
+        path: $("#folder-field").hidden ? "" : $("#folder").value }) });
+      location.hash = `#/jobs/${job.id}`;
+    } catch (err) {
+      const d = err.detail || {};
+      msg.innerHTML = `<div class="notice"><p>${esc(err.message)}</p>${d.install_url
+        ? `<a class="btn" href="${esc(d.install_url)}">Install PatchForge</a>` : ""}</div>`;
+      btn.disabled = false; btn.textContent = "Start upgrade";
+    }
+  });
+}
+
+// Lists the Python/Node projects inside the chosen repo (e.g. a monorepo of examples).
+let projectsFor = null;
+async function loadProjects() {
+  const repo = $("#repo")?.value.trim();
+  if (!repo || repo === projectsFor) return;
+  projectsFor = repo;
+  let projects = [];
+  try { projects = await api(`/github/projects?repo=${encodeURIComponent(repo)}`); } catch {}
+  if (projectsFor !== repo || !$("#folder")) return;
+  const show = projects.length > 1 || (projects.length === 1 && projects[0].path !== "");
+  const last = store.get(`pf.folder.${repo}`);
+  $("#folder").innerHTML = projects.map((p) => `<option value="${esc(p.path)}" ${p.path === last ? "selected" : ""}>
+    ${esc(p.path || "Repository root")} · ${p.language === "node" ? "Node.js" : "Python"}</option>`).join("");
+  $("#folder-field").hidden = !show;
+  $("#folder").onchange = () => store.set(`pf.folder.${repo}`, $("#folder").value);
+}
+
+function renderLists() {
+  const el = $("#lists");
+  if (!el) return;
+  const jobs = state.jobs.length ? `<ul class="card rows">${state.jobs.map((j) => `
+      <li><a class="row" href="#/jobs/${esc(j.id)}">
+        <span class="status-dot ${esc(j.status)}" title="${esc(j.status)}"></span>
+        <span class="main"><div class="t">${esc(j.repo)}${j.path ? ` <span class="muted">/ ${esc(j.path)}</span>` : ""}</div><div class="s">${esc(j.instruction)}</div></span>
+        <span class="meta">${ago(j.created_at)}<br>${money(j.totals.cost_usd)}</span>
+      </a></li>`).join("")}</ul>`
+    : `<div class="card pad muted">No upgrades yet.</div>`;
+
+  const skills = state.skills.length ? `<section><div class="section-title"><h2>Learned skills</h2>
+      <span class="muted" style="font-size:13px">Reused automatically, skipping web research</span></div>
+      <div class="skills">${state.skills.map((s) => `<div class="skill"><b>${esc(s.library)} → ${esc(s.to_version)}</b>
+      <span> · ${s.changes} changes · used ${s.uses}×</span></div>`).join("")}</div></section>` : "";
+
+  el.innerHTML = `<section><div class="section-title"><h2>Your upgrades</h2></div>${jobs}</section>${skills}`;
+}
+
+// ---------- Job ----------
+let job = null, events = [];
+
+function openJob(id) {
+  job = null; events = []; jobClock = null;
+  $("#view").innerHTML = `<a class="back" href="#/">← All upgrades</a><div class="card pad muted">Loading…</div>`;
+  api(`/jobs/${id}`).then((j) => { job = j; renderJob(); }).catch(() => {
+    $("#view").innerHTML = `<a class="back" href="#/">← All upgrades</a><div class="card pad">This job doesn't exist.</div>`;
+  });
+  state.source = new EventSource(`/jobs/${id}/events`);
+  state.source.onmessage = (m) => { events.push(JSON.parse(m.data)); schedule(); };
+  state.source.addEventListener("end", (m) => { job = JSON.parse(m.data); closeStream(); renderJob(); loadLists(); });
+}
+
+function closeStream() { if (state.source) { state.source.close(); state.source = null; } }
+
+let pending = false;
+function schedule() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; renderJob(); }); } }
+
+function renderJob() {
+  if (!job) return;
+  const seen = new Set(events.map((e) => e.stage));
+  const failed = job.status === "failed" || seen.has("error");
+  const done = seen.has("done") || job.status === "succeeded";
+  const status = done ? "succeeded" : failed ? "failed" : "running";
+  let reached = -1;
+  STEPS.forEach((s, i) => { if (s.stages.some((st) => seen.has(st))) reached = i; });
+
+  const stepper = STEPS.map((s, i) => {
+    let cls = "", inner = i + 1;
+    if (done || i < reached) { cls = "done"; inner = "✓"; }
+    else if (i === reached || (reached === -1 && i === 0)) { cls = failed ? "fail" : "active"; inner = failed ? "✕" : ""; }
+    return `<div class="step ${cls}"><div class="circle">${inner}</div>${s.name}</div>`;
+  }).join("");
+
+  const pr = events.find((e) => e.stage === "pr");
+  const prUrl = job.pr_url || pr?.data?.url;
+  const errText = job.error || [...events].reverse().find((e) => e.stage === "error")?.message || "";
+  const needsAccess = /isn't installed|App is missing a permission|not found/i.test(errText);
+  const reused = events.some((e) => e.stage === "skill" && /reusing/i.test(e.message));
+  let result = "";
+  if (done) {
+    const verified = job.verified !== false && pr?.data?.verified !== false;
+    const checked = job.checked || "build";
+    result = verified
+      ? `<div class="result ok"><div class="msg"><b>Pull request opened</b>
+          <span>The project's tests passed in the sandbox${reused ? " · reused a learned skill" : ""}.</span></div>`
+      : `<div class="result warn"><div class="msg"><b>Draft pull request opened: not verified by tests</b>
+          <span>This project has no tests. The upgrade installs and passes a ${esc(checked)} check, but its behaviour
+          wasn't tested, so review it carefully${reused ? " · reused a learned skill" : ""}.</span></div>`;
+    result += `${prUrl ? `<a class="btn" href="${esc(prUrl)}" target="_blank" rel="noopener">View pull request ↗</a>` : ""}</div>`;
+  } else if (failed) {
+    result = `<div class="result bad"><div class="msg"><b>No pull request opened</b><span>${esc(errText.split("\n")[0])}</span></div>
+      ${needsAccess && state.github.install_url ? `<a class="btn ghost" href="${esc(state.github.install_url)}">Give PatchForge access</a>` : ""}</div>`;
+  }
+
+  const t = { cost: 0, calls: 0, tin: 0, tout: 0 }, models = {};
+  for (const e of events) {
+    t.cost += e.cost_usd; t.tin += e.tokens_in; t.tout += e.tokens_out;
+    if (!e.model) continue;
+    t.calls++;
+    const m = models[e.model] ||= { calls: 0, tin: 0, tout: 0, cost: 0, ms: 0 };
+    m.calls++; m.tin += e.tokens_in; m.tout += e.tokens_out; m.cost += e.cost_usd; m.ms += e.latency_ms || 0;
+  }
+  const start = events[0]?.ts || job.created_at;
+  const end = done || failed ? (job.finished_at || events[events.length - 1]?.ts) : null;
+  jobClock = { start, end, running: !done && !failed };
+
+  // What's happening right now: the newest event, including "Still installing…" heartbeats.
+  const latest = [...events].reverse().find((e) => e.stage !== "done");
+  if (latest) jobClock.since = latest.data?.heartbeat ? null : latest.ts;
+  const live = jobClock.running && latest ? `<div class="live" role="status"><span class="spin"></span>
+    <span class="what">${esc(latest.message.split("\n")[0])}</span><time id="live-age"></time></div>` : "";
+
+  const timeline = events.filter((e) => e.stage !== "done" && !e.data?.heartbeat).map((e) => `
+    <li class="${esc(e.level)} ${e.model ? "model" : ""}"><span class="mark"></span>
+      <div class="what">${esc(e.message.split("\n")[0])}${e.model ? `<small>${esc(e.model.split("/").pop())} · ${compact(e.tokens_in + e.tokens_out)} tokens · ${money(e.cost_usd)}</small>` : ""}</div>
+      <time>${dur(Math.max(0, e.ts - start))}</time></li>`).join("");
+
+  const modelRows = Object.entries(models).sort((a, b) => b[1].cost - a[1].cost);
+  const table = modelRows.length ? `<details><summary>Cost by model</summary><div class="scroll-x"><table>
+    <thead><tr><th>Model</th><th class="n">Calls</th><th class="n">Tokens</th><th class="n">Avg time</th><th class="n">Cost</th></tr></thead>
+    <tbody>${modelRows.map(([n, m]) => `<tr><td>${esc(n)}</td><td class="n">${m.calls}</td><td class="n">${compact(m.tin + m.tout)}</td>
+      <td class="n">${dur(m.ms / m.calls / 1000)}</td><td class="n">${money(m.cost)}</td></tr>`).join("")}</tbody></table></div></details>` : "";
+
+  const log = $("#timeline"), atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  $("#view").innerHTML = `
+    <a class="back" href="#/">← All upgrades</a>
+    <div class="card">
+      <div class="pad">
+        <div class="job-head">
+          <div><h1>${esc(job.repo).replace("/", "/<wbr>")}</h1><p>${esc(job.instruction)}${job.path ? ` · in <code>${esc(job.path)}</code>` : ""}</p></div>
+          <span class="badge ${status}">${status === "running" ? "In progress" : status === "succeeded" ? "Done" : "Failed"}</span>
+        </div>
+        <div class="stepper">${stepper}</div>
+        ${live}${result}
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">Cost</div><div class="v">${money(t.cost)}</div></div>
+        <div class="stat"><div class="k">Model calls</div><div class="v">${t.calls}</div></div>
+        <div class="stat"><div class="k">Tokens</div><div class="v">${compact(t.tin + t.tout)}</div></div>
+        <div class="stat"><div class="k">Time</div><div class="v" id="stat-time"></div></div>
+      </div>
+    </div>
+    <section style="margin-top:20px">
+      <div class="section-title"><h2>Activity</h2></div>
+      <div class="card"><ul class="timeline" id="timeline">${timeline || `<li><span></span><span class="muted">Waiting to start…</span></li>`}</ul>${table}</div>
+    </section>`;
+  const el = $("#timeline");
+  if (el && atBottom) el.scrollTop = el.scrollHeight;
+  tick();
+}
+
+// Updates the clocks every second without re-drawing the page.
+let jobClock = null;
+function tick() {
+  if (!jobClock || !location.hash.startsWith("#/jobs/")) return;
+  const now = Date.now() / 1000, end = jobClock.end || now;
+  const t = $("#stat-time");
+  if (t) t.textContent = dur(Math.max(0, end - jobClock.start));
+  const age = $("#live-age");
+  if (age) age.textContent = jobClock.since ? `${dur(Math.max(0, now - jobClock.since))} ago` : "";
+}
+setInterval(tick, 1000);
+
+// ---------- Routing ----------
+async function loadLists() {
+  if (!state.me) return;
+  try { state.jobs = await api("/jobs"); } catch {}
+  try { state.skills = await api("/skills"); } catch {}
+  if (!location.hash.startsWith("#/jobs/")) renderLists();
+}
+
+function route() {
+  closeStream();
+  renderUser();
+  if (!state.me) { job = null; return renderLanding(); }
+  const m = location.hash.match(/^#\/jobs\/([\w-]+)/);
+  if (m) openJob(m[1]); else renderHome();
+}
+
+window.addEventListener("hashchange", route);
+setInterval(() => { if (state.me && !location.hash.startsWith("#/jobs/")) loadLists(); }, 5000);
+
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const AUTH_ERRORS = { expired: "That sign-in link expired. Please try again.", failed: "GitHub sign-in failed. Please try again.",
+    access_denied: "Sign-in was cancelled." };
+  if (params.has("auth_error")) state.flash = { text: AUTH_ERRORS[params.get("auth_error")] || "GitHub sign-in failed." };
+  if (params.has("installed")) state.flash = { ok: true, text: "PatchForge's repository access was updated." };
+  if (params.toString()) history.replaceState(null, "", "/" + location.hash);
+
+  try { state.health = await api("/health"); } catch {}
+  try { state.me = await api("/auth/me"); } catch { state.me = null; }
+  route();
+  if (!state.me) return;
+  try { state.github = await api("/github"); } catch {}
+  await Promise.all([loadRepos(params.has("installed")), loadLists()]);
+  setTimeout(() => { state.flash = null; }, 6000);
+})();
+</script>
+</body>
+</html>

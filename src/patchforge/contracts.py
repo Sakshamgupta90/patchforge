@@ -32,13 +32,22 @@ class SandboxResult(BaseModel):
     failed_tests: list[str] = Field(default_factory=list)
     error_log: str = ""
     duration: float = 0.0  # seconds
+    # What was actually run: "tests" (the project's own tests), or, for a project without tests,
+    # "build" (npm run build), "typecheck" (tsc) or "compile" (syntax check). Only "tests"
+    # verifies behaviour; anything else gets a PR marked "not verified by tests".
+    checked: str = "tests"
+
+
+ProgressFn = Callable[[str], None]
 
 
 class Sandbox(Protocol):
-    def run_tests(self, code_folder: Path) -> SandboxResult:
+    def run_tests(self, code_folder: Path, progress: ProgressFn | None = None) -> SandboxResult:
         """Run the project's tests against a copy of `code_folder`.
 
         Must never modify `code_folder`, and must never receive credentials.
+        `progress`, if given, receives short status lines ("Installing dependencies…") while it runs,
+        so the dashboard isn't silent during a long install.
         """
         ...
 

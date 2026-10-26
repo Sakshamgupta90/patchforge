@@ -11,7 +11,7 @@ DEPS_DIR = ".pf-deps"
 REPORT_FILE = ".pf-report.xml"
 # Not copied into the sandbox: git history, virtualenvs, caches.
 IGNORE = shutil.ignore_patterns(".git", ".venv", "venv", "node_modules", "__pycache__",
-                                ".pytest_cache", DEPS_DIR, REPORT_FILE)
+                                ".pytest_cache", ".next", DEPS_DIR, REPORT_FILE, ".pf-npm-cache")
 
 
 def copy_tree(src: Path, dest: Path) -> Path:
@@ -22,16 +22,6 @@ def copy_tree(src: Path, dest: Path) -> Path:
 
 def tail(text: str, limit: int = LOG_LIMIT) -> str:
     return text if len(text) <= limit else "...(truncated)...\n" + text[-limit:]
-
-
-def install_command(folder: Path) -> str:
-    """Shell command that installs the project's deps (plus pytest) into DEPS_DIR."""
-    pip = f"python -m pip install --quiet --disable-pip-version-check --target {DEPS_DIR}"
-    if (folder / "requirements.txt").exists():
-        return f"{pip} -r requirements.txt pytest"
-    if (folder / "pyproject.toml").exists() or (folder / "setup.py").exists():
-        return f"{pip} . pytest"
-    return f"{pip} pytest"
 
 
 def failed_tests_from_junit(report: Path) -> list[str]:

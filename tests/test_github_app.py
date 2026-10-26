@@ -83,6 +83,7 @@ def test_bot_identity(rsa_key):
         if req.url.path == "/app":
             return httpx.Response(200, json={"slug": "patchforge"})
         assert req.url.path == "/users/patchforge[bot]"
+        assert "Authorization" not in req.headers  # public endpoint; it rejects the App JWT
         return httpx.Response(200, json={"id": 999})
 
     app = make_app(rsa_key, handler)
@@ -102,3 +103,45 @@ def test_webhook_signature():
     assert not verify_webhook_signature("s3cret", body + b" ", sig)
     assert not verify_webhook_signature("s3cret", body, None)
     assert not verify_webhook_signature("", body, sig)
+
+
+def test_install_url(rsa_key):
+    app = make_app(rsa_key, lambda r: httpx.Response(200, json={"slug": "patchforge-team", "name": "PatchForge"}))
+    assert app.install_url() == "https://github.com/apps/patchforge-team/installations/new"
+
+
+def test_list_projects(rsa_key):
+    def handler(req):
+        path = req.url.path
+        if path.endswith("/access_tokens"):
+            return httpx.Response(201, json={"token": "ghs_t", "expires_at": iso(1_800_000_000 + 3600)})
+        if path == "/repos/me/cases":
+            return httpx.Response(200, json={"default_branch": "main"})
+        assert path == "/repos/me/cases/git/trees/main"
+        return httpx.Response(200, json={"tree": [
+            {"path": "README.md", "type": "blob"},
+            {"path": "python-flask/requirements.txt", "type": "blob"},
+            {"path": "react/package.json", "type": "blob"},
+            {"path": "react/node_modules/x/package.json", "type": "blob"},
+            {"path": "fullstack/requirements.txt", "type": "blob"},
+            {"path": "fullstack/package.json", "type": "blob"},
+            {"path": "go/go.mod", "type": "blob"}]})
+
+    projects = make_app(rsa_key, handler).list_projects("me", "cases", 1)
+    assert projects == [{"path": "fullstack", "language": "node"}, {"path": "python-flask", "language": "python"},
+                        {"path": "react", "language": "node"}]
+
+
+def test_draft_pr_falls_back_when_drafts_unavailable(rsa_key):
+    bodies = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        bodies.append(body)
+        if body.get("draft"):
+            return httpx.Response(422, json={"message": "Draft pull requests are not supported in this repository."})
+        return httpx.Response(201, json={"number": 9, "html_url": "https://github.com/o/r/pull/9"})
+
+    pr = make_app(rsa_key, handler).create_pull_request("o", "r", "t", head="h", base="main", title="t", body="b",
+                                                        draft=True)
+    assert pr["number"] == 9 and bodies[0]["draft"] is True and "draft" not in bodies[1]

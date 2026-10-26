@@ -1,7 +1,7 @@
 """Run a folder's tests in a sandbox and print the result.
 
-    python scripts/try_sandbox.py examples/sample_project            # Docker
-    python scripts/try_sandbox.py examples/sample_project --local    # no isolation
+    python scripts/try_sandbox.py tests/fixtures/demo-repo            # Docker
+    python scripts/try_sandbox.py tests/fixtures/demo-repo --local    # no isolation
 """
 
 import argparse

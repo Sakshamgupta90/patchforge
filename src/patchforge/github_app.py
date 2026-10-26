@@ -12,7 +12,7 @@ import hmac
 import threading
 import time
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable
 from urllib.parse import quote
 
 import httpx
@@ -65,6 +65,7 @@ class GitHubApp:
         self._tokens: dict[int, tuple[str, float]] = {}  # installation_id -> (token, expires_at)
         self._lock = threading.Lock()
         self._bot_identity: tuple[str, str] | None = None
+        self._app: dict | None = None
 
     # --- auth -------------------------------------------------------------------
 
@@ -102,28 +103,64 @@ class GitHubApp:
         return self._request("GET", f"/repos/{owner}/{repo}", auth=f"token {token}", action="repo")
 
     def create_pull_request(self, owner: str, repo: str, token: str, *, head: str, base: str,
-                            title: str, body: str) -> dict:
-        return self._request(
-            "POST", f"/repos/{owner}/{repo}/pulls", auth=f"token {token}", action="pull_request",
-            json={"title": title, "head": head, "base": base, "body": body,
-                  "maintainer_can_modify": True},
-        )
+                            title: str, body: str, draft: bool = False) -> dict:
+        payload = {"title": title, "head": head, "base": base, "body": body, "maintainer_can_modify": True}
+        try:
+            return self._request("POST", f"/repos/{owner}/{repo}/pulls", auth=f"token {token}",
+                                 action="pull_request", json={**payload, "draft": draft})
+        except GitHubError as e:
+            # Draft PRs aren't available on every plan (e.g. private repos on GitHub Free).
+            if draft and e.status == 422 and "draft" in str(e).lower():
+                return self._request("POST", f"/repos/{owner}/{repo}/pulls", auth=f"token {token}",
+                                     action="pull_request", json=payload)
+            raise
+
+    # --- installs: which repos users have given PatchForge permission for -----------------
+
+    def app_info(self) -> dict:
+        if self._app is None:
+            self._app = self._request("GET", "/app", auth=f"Bearer {self.app_jwt()}", action="app")
+        return self._app
+
+    def list_projects(self, owner: str, repo: str, installation_id: int) -> list[dict]:
+        """Folders in the repo that are a Python or Node project, found from their manifest files."""
+        token = self.installation_token(installation_id)
+        branch = self.get_repo(owner, repo, token)["default_branch"]
+        tree = self._request("GET", f"/repos/{owner}/{repo}/git/trees/{quote(branch)}?recursive=1",
+                             auth=f"token {token}", action="tree")
+        manifests = {"package.json": "node", "requirements.txt": "python", "pyproject.toml": "python",
+                     "setup.py": "python"}
+        projects: dict[str, str] = {}
+        for item in tree.get("tree", []):
+            path = item.get("path", "")
+            if item.get("type") != "blob" or "node_modules/" in path or path.count("/") > 3:
+                continue
+            folder, _, name = path.rpartition("/")
+            if name in manifests:
+                # A folder with both package.json and requirements.txt counts as Node (its build is npm).
+                if projects.get(folder) != "node":
+                    projects[folder] = manifests[name]
+        return [{"path": k, "language": v} for k, v in sorted(projects.items())]
+
+    def install_url(self) -> str:
+        """GitHub's own screen where a user installs the App and picks which repos it may touch."""
+        return f"https://github.com/apps/{self.app_info()['slug']}/installations/new"
 
     def bot_identity(self) -> tuple[str, str]:
         """(name, email) that make commits show up as "<app-slug>[bot]" with the App's avatar."""
         if self._bot_identity is None:
-            app = self._request("GET", "/app", auth=f"Bearer {self.app_jwt()}", action="app")
+            app = self.app_info()
             login = f"{app['slug']}[bot]"
-            user = self._request("GET", f"/users/{quote(login)}", auth=f"Bearer {self.app_jwt()}",
-                                 action="user")
+            # A public endpoint: it rejects the App's JWT, so ask without credentials.
+            user = self._request("GET", f"/users/{quote(login)}", auth=None, action="user")
             self._bot_identity = (login, f"{user['id']}+{login}@users.noreply.github.com")
         return self._bot_identity
 
     # --- plumbing -----------------------------------------------------------------
 
-    def _request(self, method: str, path: str, *, auth: str, action: str, json: dict | None = None) -> dict:
+    def _request(self, method: str, path: str, *, auth: str | None, action: str, json: dict | None = None) -> Any:
         headers = {
-            "Authorization": auth,
+            **({"Authorization": auth} if auth else {}),
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "patchforge",

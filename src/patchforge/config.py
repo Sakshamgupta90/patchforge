@@ -14,11 +14,20 @@ class Settings:
     github_app_id: str = ""
     github_private_key: str = ""
     github_webhook_secret: str = ""
+    # "Sign in with GitHub": the Client ID / secret from the same GitHub App
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    # Where users reach this server; GitHub redirects back to {public_url}/auth/callback
+    public_url: str = "http://127.0.0.1:8000"
     sandbox: str = "docker"
     sandbox_image: str = "python:3.12-slim"
     agent: str = "stub"
     api_key: str = ""
     cors_origins: list[str] = field(default_factory=list)
+
+    @property
+    def oauth_configured(self) -> bool:
+        return bool(self.github_client_id and self.github_client_secret)
 
     @property
     def github_configured(self) -> bool:
@@ -38,6 +47,9 @@ class Settings:
             github_app_id=os.getenv("GITHUB_APP_ID", ""),
             github_private_key=key.replace("\\n", "\n"),
             github_webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET", ""),
+            github_client_id=os.getenv("GITHUB_CLIENT_ID", ""),
+            github_client_secret=os.getenv("GITHUB_CLIENT_SECRET", ""),
+            public_url=os.getenv("PATCHFORGE_PUBLIC_URL", "http://127.0.0.1:8000"),
             sandbox=os.getenv("PATCHFORGE_SANDBOX", "docker"),
             sandbox_image=os.getenv("SANDBOX_IMAGE", "python:3.12-slim"),
             agent=os.getenv("PATCHFORGE_AGENT", "stub"),

@@ -29,7 +29,7 @@ class FakeSandbox:
         self.results = list(results) if results else [CANNED_FAILURE, CANNED_PASS]
         self.calls: list[Path] = []
 
-    def run_tests(self, code_folder: Path) -> SandboxResult:
+    def run_tests(self, code_folder: Path, progress=None) -> SandboxResult:
         self.calls.append(Path(code_folder))
         i = min(len(self.calls) - 1, len(self.results) - 1)
         return self.results[i]

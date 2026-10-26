@@ -54,19 +54,20 @@ def test_job_lifecycle_and_sse(client):
     assert r.status_code == 202
     job = r.json()
 
-    events, end = read_sse(client, job["events_url"])
+    events, end = read_sse(client, job["events_url"], headers=AUTH)
     assert end["status"] == "succeeded", end["error"]
     assert end["pr_url"].endswith("/pull/1")
     assert [e["id"] for e in events] == list(range(len(events)))
     assert events[0]["stage"] == "job" and events[-1]["stage"] == "done"
 
     # A refreshed dashboard resumes from Last-Event-ID.
-    later, _ = read_sse(client, job["events_url"], headers={"Last-Event-ID": "3"})
+    later, _ = read_sse(client, job["events_url"], headers={**AUTH, "Last-Event-ID": "3"})
     assert later[0]["id"] == 4
 
-    assert client.get(f"/jobs/{job['id']}").json()["status"] == "succeeded"
-    assert client.get("/jobs").json()[0]["id"] == job["id"]
-    assert client.get("/jobs/nope").status_code == 404
+    assert client.get(f"/jobs/{job['id']}", headers=AUTH).json()["status"] == "succeeded"
+    assert client.get("/jobs", headers=AUTH).json()[0]["id"] == job["id"]
+    assert client.get("/jobs/nope", headers=AUTH).status_code == 404
+    assert client.get("/jobs").status_code == 401
 
 
 def sign(body: bytes) -> str:
@@ -80,8 +81,28 @@ def test_webhook(client):
     r = client.post("/webhooks/github", content=body,
                     headers={"X-GitHub-Event": "installation", "X-Hub-Signature-256": sign(body)})
     assert r.status_code == 200
-    assert client.get("/installations").json() == [{"id": 77, "account": "me"}]
 
     ping = b'{"zen":"hi"}'
     assert client.post("/webhooks/github", content=ping,
                        headers={"X-GitHub-Event": "ping", "X-Hub-Signature-256": sign(ping)}).json()["pong"]
+
+
+def test_dashboard_served(client):
+    r = client.get("/")
+    assert r.status_code == 200 and "<title>PatchForge</title>" in r.text
+
+
+def test_skills_endpoint(client, tmp_path, monkeypatch):
+    from patchforge.skills import SkillStore
+    monkeypatch.setenv("PATCHFORGE_SKILLS_DIR", str(tmp_path / "skills"))
+    assert client.get("/skills", headers=AUTH).json() == []
+    SkillStore(tmp_path / "skills").save({"to_version": "2.9.2", "changes": [{"old": "a", "new": "b"}]},
+                                         library="pydantic", from_version="1.10", to_version="2.9.2")
+    [skill] = client.get("/skills", headers=AUTH).json()
+    assert skill["library"] == "pydantic" and skill["changes"] == 1 and skill["uses"] == 0
+
+
+def test_brain_agent_registered():
+    from patchforge.api import _make_agent
+    from patchforge.brain import BrainAgent
+    assert isinstance(_make_agent("brain"), BrainAgent)

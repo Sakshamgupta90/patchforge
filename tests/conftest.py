@@ -6,7 +6,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-SAMPLE = Path(__file__).resolve().parent.parent / "examples" / "sample_project"
+SAMPLE = Path(__file__).resolve().parent / "fixtures" / "sample_project"
 FAKE_TOKEN = "ghs_" + "A" * 36
 
 
@@ -37,6 +37,26 @@ def remote_repo(tmp_path):
     return bare
 
 
+class FakeRegistry:
+    """Stands in for PyPI/npm: fixed versions, optional runtime requirements."""
+
+    def __init__(self, versions=None, runtimes=None):
+        self.versions = versions or {}
+        self.runtimes = runtimes or {}
+        self.calls = []
+
+    def latest_version(self, ecosystem, name, *, major=None, runtime=None):
+        self.calls.append((ecosystem, name, major, runtime))
+        v = self.versions.get(name, "2.14.1")
+        return v(major, runtime) if callable(v) else v
+
+    def min_runtime(self, ecosystem, name, version):
+        return self.runtimes.get(name)
+
+    def official_sites(self, ecosystem, name):
+        return []
+
+
 class FakeGitHub:
     """Implements jobs.GitHubLike against a local bare repo."""
 
@@ -58,8 +78,8 @@ class FakeGitHub:
     def clone_url(self, owner, repo):
         return f"file://{self.bare}"
 
-    def create_pull_request(self, owner, repo, token, *, head, base, title, body):
-        self.prs.append({"head": head, "base": base, "title": title, "body": body, "token": token})
+    def create_pull_request(self, owner, repo, token, *, head, base, title, body, draft=False):
+        self.prs.append({"head": head, "base": base, "title": title, "body": body, "token": token, "draft": draft})
         n = len(self.prs)
         return {"number": n, "html_url": f"https://github.com/{owner}/{repo}/pull/{n}"}
 
