@@ -292,3 +292,80 @@ def test_files_named_in_errors_can_be_patched(tmp_path):
     (tmp_path / "test" / "a.test.ts").write_text("x\n")
     log = "src/index.ts(12,10): error TS7053: Element implicitly has an 'any' type\n/work/test/a.test.ts:3 boom\n"
     assert [p.name for p in files_in_error(tmp_path, log, "node")] == ["index.ts"]  # never the tests
+
+
+def test_files_in_error_keep_the_callers_path_spelling(tmp_path):
+    """On macOS /var is a symlink to /private/var; returned paths must be relative_to() the given workdir."""
+    from patchforge.brain import files_in_error
+    real = tmp_path / "real"
+    (real / "app").mkdir(parents=True)
+    (real / "app" / "views.py").write_text("x = 1\n")
+    alias = tmp_path / "alias"
+    alias.symlink_to(real)
+    log = f"File \"{real}/app/views.py\", line 1\nImportError: boom\n"
+    [hit] = files_in_error(alias, log, "python")
+    assert hit.relative_to(alias) == Path("app/views.py")
+
+
+# --- conflicting pins, resolved from registry data -------------------------------------------
+
+def test_npm_ranges():
+    from patchforge.registry import npm_satisfies as ok
+    assert ok("17.0.2", "^16.0.0 || ^17.0.0") and not ok("19.2.0", "^16.0.0 || ^17.0.0")
+    assert ok("4.17.21", "^4.17.1") and not ok("5.0.0", "^4.17.1")
+    assert ok("0.2.5", "^0.2.3") and not ok("0.3.0", "^0.2.3")
+    assert ok("1.2.9", "~1.2.3") and not ok("1.3.0", "~1.2.3")
+    assert ok("18.2.0", ">=16.8 <19") and not ok("19.0.0", ">=16.8 <19")
+    assert ok("2.5.0", "1.2 - 2.x") and not ok("3.0.0", "1.2 - 2.x")
+    assert ok("5.0.0", "*") and ok("1.0.0", "") and ok("1.0.0", "npm:other@1")
+    assert ok("16.4.0", "16.x") and not ok("17.0.0", "16.x")
+
+
+def test_python_dependencies_follow_markers(tmp_path):
+    from patchforge.registry import PackageRegistry
+
+    def handler(req):
+        assert req.url.path == "/pypi/Flask/3.1.3/json"
+        return httpx.Response(200, json={"info": {"requires_dist": [
+            "Werkzeug>=3.1.0", "Jinja2>=3.1.2", "itsdangerous>=2.2.0", "click>=8.1.3",
+            "importlib-metadata>=3.6; python_version < '3.10'", "asgiref>=3.2; extra == 'async'"]}})
+
+    reg = PackageRegistry(registry(handler))
+    names = dict(reg.dependencies("python", "Flask", "3.1.3", runtime="3.12"))
+    assert names == {"Werkzeug": ">=3.1.0", "Jinja2": ">=3.1.2", "itsdangerous": ">=2.2.0", "click": ">=8.1.3"}
+    assert "importlib-metadata" in dict(reg.dependencies("python", "Flask", "3.1.3", runtime="3.9"))
+
+
+def test_flask_upgrade_moves_the_pins_it_conflicts_with(tmp_path):
+    """The real failure: "Upgrade Flask to the latest version" bumped Flask only, and pip refused Jinja2==2.11.3."""
+    root = tmp_path / "flask"
+    root.mkdir()
+    (root / "requirements.txt").write_text(
+        "Flask==1.1.4\nWerkzeug==1.0.1\nJinja2==2.11.3\nMarkupSafe==1.1.1\nitsdangerous==1.1.0\nrequests==2.32.0\n")
+    reg = FakeRegistry(versions={"Werkzeug": "3.1.9", "Jinja2": "3.1.6", "MarkupSafe": "3.0.4", "itsdangerous": "2.2.0"})
+    reg.pins = {"Werkzeug": "1.0.1", "Jinja2": "2.11.3", "MarkupSafe": "1.1.1", "itsdangerous": "1.1.0", "requests": "2.32.0"}
+    reg.deps = {("Flask", "3.1.3"): [("Werkzeug", ">=3.1.0"), ("Jinja2", ">=3.1.2"), ("itsdangerous", ">=2.2.0")],
+                ("Jinja2", "3.1.6"): [("MarkupSafe", ">=2.0")],
+                ("Werkzeug", "3.1.9"): [("MarkupSafe", ">=2.1.1")]}
+    agent = BrainAgent(llm=NodeLLM(), tavily=None, skills=SkillStore(tmp_path / "s"), registry=reg)
+    events = []
+    targets, _ = agent.plan_versions(root, {"ecosystem": "python", "library": "Flask", "companions": []}, "3.1.3",
+                                     events.append)
+    assert targets == {"Flask": "3.1.3", "Werkzeug": "3.1.9", "Jinja2": "3.1.6", "itsdangerous": "2.2.0",
+                       "MarkupSafe": "3.0.4"}  # requests isn't touched: nothing conflicts with it
+    assert any("Also upgrading Jinja2 to 3.1.6: Flask 3.1.3 needs Jinja2 >=3.1.2" in e.message for e in events)
+
+
+def test_pinned_package_that_rejects_the_new_version_moves_too(tmp_path):
+    root = tmp_path / "web"
+    root.mkdir()
+    (root / "package.json").write_text(json.dumps({"dependencies": {
+        "react": "17.0.2", "react-dom": "17.0.2", "react-scripts": "4.0.3", "lodash": "4.17.21"}}))
+    reg = FakeRegistry(versions={"react": "19.2.0", "react-dom": "19.2.0", "react-scripts": "5.0.1"})
+    reg.pins = {"react-scripts": "4.0.3", "lodash": "4.17.21"}
+    reg.deps = {("react-scripts", "4.0.3"): [("react", "^16 || ^17")],  # the pinned version refuses React 19
+                ("react-dom", "19.2.0"): [("react", "^19.2.0")]}
+    agent = BrainAgent(llm=NodeLLM(), tavily=None, skills=SkillStore(tmp_path / "s"), registry=reg)
+    targets, _ = agent.plan_versions(root, {"ecosystem": "node", "library": "react", "companions": ["react-dom"]},
+                                     "19.2.0", lambda e: None)
+    assert targets["react-scripts"] == "5.0.1" and "lodash" not in targets

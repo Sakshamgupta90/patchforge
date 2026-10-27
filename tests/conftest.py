@@ -56,6 +56,24 @@ class FakeRegistry:
     def official_sites(self, ecosystem, name):
         return []
 
+    # No dependency data unless a test provides it: {(name, version): [(dep, spec)]}
+    deps = {}
+    pins = {}
+
+    def dependencies(self, ecosystem, name, version, runtime=None):
+        return self.deps.get((name, version), [])
+
+    def satisfies(self, ecosystem, version, spec):
+        from patchforge.registry import npm_satisfies, pypi_satisfies
+        return npm_satisfies(version, spec) if ecosystem == "node" else pypi_satisfies(version, spec)
+
+    def best_for_pin(self, ecosystem, name, pin):
+        return self.pins.get(name)
+
+    def latest_satisfying(self, ecosystem, name, spec, runtime=None):
+        v = self.versions.get(name)
+        return v(None, runtime) if callable(v) else v
+
 
 class FakeGitHub:
     """Implements jobs.GitHubLike against a local bare repo."""

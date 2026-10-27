@@ -15,7 +15,7 @@ from tavily import TavilyClient
 from . import deps
 from .contracts import AgentEvent, AgentOutput, AgentTask, EmitFn, Sandbox, SandboxResult
 from .registry import PackageRegistry
-from .skills import CONCRETE_VERSION, SkillStore
+from .skills import CONCRETE_VERSION, SkillStore, normalize
 
 MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507"
 # Writes the code changes (first patch and fixes). A code-specialised model: on identical jobs it passed
@@ -185,19 +185,25 @@ WEAKENERS = [
 def files_in_error(workdir: Path, log: str, ecosystem: str) -> list[Path]:
     """Project files an error points at ("src/index.ts(12,10): error TS7053", "app/views.py:12"), even ones
     that don't import the library: an upgrade can break code that only *uses* what changed."""
-    workdir = Path(workdir).resolve()
-    found = []
+    base = Path(workdir)
+    real = base.resolve()  # macOS: /var/... and /private/var/... are one folder; compare resolved paths
+    found: list[Path] = []
     for m in re.finditer(r"([\w./-]+\.(?:py|[cm]?[jt]sx?|vue|json))", log):
         raw = m.group(1)
-        rel = raw.split("/work/", 1)[1] if "/work/" in raw else raw.lstrip("./")
-        path = (workdir / rel).resolve()
-        if not path.is_file() or not path.is_relative_to(workdir) or path in found:
+        if "/work/" in raw:  # the sandbox's copy: /work/... (Docker) or /tmp/pf-local-.../work/... (local)
+            path = (real / raw.split("/work/", 1)[1]).resolve()
+        elif raw.startswith("/"):  # an absolute path into the project itself
+            path = Path(raw).resolve()
+        else:
+            path = (real / raw.lstrip("./")).resolve()
+        if not path.is_file() or not path.is_relative_to(real):
             continue
-        r = path.relative_to(workdir)
+        r = path.relative_to(real)
         if SKIP_DIRS & set(r.parts) or is_test_file(r) or path.name in ("package.json", "package-lock.json"):
             continue
-        if path.suffix in SOURCE_EXTS[ecosystem] or CONFIG_RE.match(path.name):
-            found.append(path)
+        # Return paths under the caller's own spelling of workdir, so relative_to(workdir) works for them.
+        if (path.suffix in SOURCE_EXTS[ecosystem] or CONFIG_RE.match(path.name)) and base / r not in found:
+            found.append(base / r)
     return found
 
 
@@ -370,7 +376,71 @@ Work out which library is being upgraded or patched. Return ONLY valid JSON, no 
             # TypeScript 7 does not mean @types/node 7. Every companion must run on the project's runtime.
             lockstep = siblings(lib, comp) and self.registry.latest_version(eco, comp, major=major, runtime=runtime)
             targets[comp] = lockstep or self.registry.latest_version(eco, comp, runtime=runtime) or "latest"
-        return targets, changed
+        return self.resolve_conflicts(workdir, eco, targets, runtime, emit), changed
+
+    def resolve_conflicts(self, workdir: Path, eco: str, targets: dict, runtime: str, emit: EmitFn) -> dict:
+        """Add every other pinned package the upgrade forces to move, worked out from registry data.
+
+        Forward: what the new versions need (Flask 3.1.3 needs Jinja2>=3.1.2, which needs MarkupSafe>=2.0).
+        Backward: pinned packages that refuse the new versions (an old react-scripts that only accepts
+        React 17). Only conflicting packages move, each to the newest release that fits and runs on
+        `runtime`. This doesn't depend on the instruction naming them or the model remembering them.
+        """
+        key = normalize if eco == "python" else (lambda n: n)
+        pins = deps.pinned(workdir, eco)
+        chosen = {key(n): (n, v) for n, v in targets.items()}
+        reasons: dict[str, str] = {}
+
+        def fits(version: str, spec: str) -> bool:
+            return not CONCRETE_VERSION.match(str(version)) or self.registry.satisfies(eco, version, spec)
+
+        def current(k: str) -> str | None:
+            return chosen[k][1] if k in chosen else self.registry.best_for_pin(eco, *pins[k])
+
+        for _ in range(5):  # until nothing changes (dependency chains are short)
+            moved = False
+            # Forward: requirements of the versions being moved to.
+            queue = list(chosen.values())
+            seen: set[tuple[str, str]] = set()
+            while queue and len(seen) < 60:
+                name, version = queue.pop(0)
+                if (name, version) in seen or not CONCRETE_VERSION.match(str(version)):
+                    continue
+                seen.add((name, version))
+                for dep, spec in self.registry.dependencies(eco, name, version, runtime):
+                    k = key(dep)
+                    if k not in pins or fits(current(k) or "", spec):
+                        continue
+                    new = self.registry.latest_satisfying(eco, pins[k][0], spec, runtime)
+                    if new and (k not in chosen or chosen[k][1] != new):
+                        chosen[k] = (pins[k][0], new)
+                        reasons[pins[k][0]] = f"{name} {version} needs {dep} {spec}"
+                        queue.append(chosen[k])
+                        moved = True
+            # Backward: pinned packages whose own requirements reject a version being moved to.
+            for k, (name, spec) in pins.items():
+                if k in chosen:
+                    continue
+                have = self.registry.best_for_pin(eco, name, spec)
+                if not have:
+                    continue
+                for dep, dep_spec in self.registry.dependencies(eco, name, have, runtime):
+                    dk = key(dep)
+                    if dk in chosen and not fits(chosen[dk][1], dep_spec):
+                        new = self.registry.latest_version(eco, name, runtime=runtime)
+                        if new and new != have:
+                            chosen[k] = (name, new)
+                            reasons[name] = f"{name} {have} only works with {dep} {dep_spec}"
+                            moved = True
+                        break
+            if not moved:
+                break
+
+        resolved = {name: version for name, version in chosen.values()}
+        for name, why in reasons.items():
+            emit(AgentEvent(stage="patch", message=f"Also upgrading {name} to {resolved[name]}: {why}",
+                            data={"package": name, "version": resolved[name]}))
+        return resolved
 
     def _search(self, query: str, emit: EmitFn, what: str, max_results: int = 5,
                 domains: list[str] | None = None) -> list[dict]:

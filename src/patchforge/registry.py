@@ -2,7 +2,10 @@
 
 The model's idea of "latest" stops at its training cutoff; the registry doesn't.
 It also says which runtime each release needs (`requires_python`, `engines.node`),
-so an upgrade can move the project's Python/Node version along with the library.
+so an upgrade can move the project's Python/Node version along with the library,
+and what each release depends on, so pinned packages that would conflict with the
+new version (Flask 3 needs Jinja2 >= 3.1.2; the project pins 2.11.3) are found
+from data, not left to the model to remember.
 """
 
 from __future__ import annotations
@@ -11,6 +14,8 @@ import re
 from urllib.parse import quote, urlparse
 
 import httpx
+from packaging.markers import InvalidMarker
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
@@ -73,11 +78,85 @@ def node_allows(engines: str | None, major: str) -> bool:
     return False
 
 
+# --- npm semver ranges --------------------------------------------------------------------
+
+def _partial(v: str) -> list[int]:
+    """'1' -> [1], '1.2.x' -> [1, 2], '1.2.3-beta' -> [1, 2, 3], '*' -> []."""
+    nums = []
+    for part in v.strip().lstrip("v=").split(".")[:3]:
+        m = re.match(r"\d+", part)
+        if not m or part in ("x", "X", "*"):
+            break
+        nums.append(int(m.group()))
+    return nums
+
+
+def _pad(nums: list[int]) -> tuple[int, int, int]:
+    return tuple((nums + [0, 0, 0])[:3])  # type: ignore[return-value]
+
+
+def _bump(nums: list[int]) -> tuple[int, int, int]:
+    """Smallest version above an x-range: [1] -> 2.0.0, [1, 2] -> 1.3.0."""
+    if len(nums) <= 1:
+        return ((nums[0] if nums else 0) + 1, 0, 0)
+    return (nums[0], nums[1] + 1, 0)
+
+
+def _comparators(clause: str) -> list[tuple[str, tuple[int, int, int]]]:
+    clause = clause.strip()
+    if " - " in clause:  # hyphen range "1.2 - 2.3.4"
+        lo, hi = (_partial(x) for x in clause.split(" - ", 1))
+        return [(">=", _pad(lo)), ("<=", _pad(hi)) if len(hi) == 3 else ("<", _bump(hi))]
+    out: list[tuple[str, tuple[int, int, int]]] = []
+    for tok in re.sub(r"(>=|<=|>|<|=|\^|~>?)\s+", r"\1", clause).split():
+        m = re.match(r"(>=|<=|>|<|=|\^|~>?)?(.*)", tok)
+        op, nums = m.group(1) or "", _partial(m.group(2))
+        if not nums:
+            continue  # "*", "x", "": anything
+        if op in ("", "="):
+            out += [("=", _pad(nums))] if len(nums) == 3 else [(">=", _pad(nums)), ("<", _bump(nums))]
+        elif op == "^":
+            if nums[0] > 0 or len(nums) == 1:
+                upper = (nums[0] + 1, 0, 0)
+            elif nums[1] > 0 or len(nums) == 2:
+                upper = (0, nums[1] + 1, 0)
+            else:
+                upper = (0, 0, nums[2] + 1)
+            out += [(">=", _pad(nums)), ("<", upper)]
+        elif op in ("~", "~>"):
+            out += [(">=", _pad(nums)), ("<", _bump(nums[:2]) if len(nums) >= 2 else (nums[0] + 1, 0, 0))]
+        elif len(nums) < 3 and op in (">", "<="):
+            out.append((">=" if op == ">" else "<", _bump(nums)))
+        else:
+            out.append((op, _pad(nums)))
+    return out
+
+
+def npm_satisfies(version: str, spec: str | None) -> bool:
+    """Does `version` fall in npm range `spec` ('^4.17.1', '>=18 <20', '16.x || >=18', '1.2 - 2')?"""
+    spec = (spec or "").strip()
+    if not spec or spec in ("*", "latest") or re.match(r"^(npm:|file:|link:|git|https?:|workspace:)", spec):
+        return True
+    v = _pad(_partial(version))
+    ops = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b, "<=": lambda a, b: a <= b,
+           "<": lambda a, b: a < b, "=": lambda a, b: a == b}
+    return any(all(ops[op](v, base) for op, base in _comparators(clause)) for clause in spec.split("||"))
+
+
+def pypi_satisfies(version: str, spec: str | None) -> bool:
+    try:
+        return not spec or SpecifierSet(spec).contains(Version(version), prereleases=True)
+    except (InvalidSpecifier, InvalidVersion):
+        return True
+
+
 class PackageRegistry:
     def __init__(self, client: httpx.Client | None = None):
         self.http = client or httpx.Client(timeout=15, headers={"User-Agent": "patchforge"})
         self._cache: dict[tuple[str, str], dict] = {}
         self._meta: dict[tuple[str, str], dict] = {}
+        self._npm_versions: dict[str, dict] = {}  # name -> {version: manifest}, for dependency lookups
+        self._pypi_deps: dict[tuple[str, str], list[str]] = {}
 
     def _releases(self, ecosystem: str, name: str) -> dict:
         """{version: required runtime spec or None} for stable releases, plus the registry's 'latest'."""
@@ -86,6 +165,7 @@ class PackageRegistry:
             try:
                 if ecosystem == "node":
                     data = self.http.get(f"https://registry.npmjs.org/{quote(name, safe='@')}").json()
+                    self._npm_versions[name] = data.get("versions", {})
                     repo = data.get("repository")
                     self._meta[key] = {"urls": [data.get("homepage"), repo.get("url") if isinstance(repo, dict) else repo]}
                     rel = {v: (meta.get("engines") or {}).get("node") if isinstance(meta.get("engines"), dict) else None
@@ -129,6 +209,55 @@ class PackageRegistry:
             if host and host not in domains and host not in NOT_DOCS:
                 domains.append(host)
         return domains[:4]
+
+    # --- dependencies ---------------------------------------------------------------------
+
+    def satisfies(self, ecosystem: str, version: str, spec: str | None) -> bool:
+        return npm_satisfies(version, spec) if ecosystem == "node" else pypi_satisfies(version, spec)
+
+    def dependencies(self, ecosystem: str, name: str, version: str, runtime: str | None = None) -> list[tuple[str, str]]:
+        """What this release needs: [(package, version range)], including npm peer dependencies
+        (the usual cause of `npm install` refusing an upgrade) and only the Python requirements
+        that apply on `runtime` without extras."""
+        if ecosystem == "node":
+            self._releases(ecosystem, name)
+            manifest = self._npm_versions.get(name, {}).get(version) or {}
+            optional = {k for k, v in (manifest.get("peerDependenciesMeta") or {}).items() if (v or {}).get("optional")}
+            deps = dict(manifest.get("dependencies") or {})
+            deps.update({k: v for k, v in (manifest.get("peerDependencies") or {}).items() if k not in optional})
+            return [(k, v) for k, v in deps.items() if isinstance(v, str)]
+        key = (name, version)
+        if key not in self._pypi_deps:
+            try:
+                info = self.http.get(f"https://pypi.org/pypi/{quote(name)}/{quote(version)}/json").json().get("info") or {}
+                self._pypi_deps[key] = info.get("requires_dist") or []
+            except (httpx.HTTPError, ValueError):
+                self._pypi_deps[key] = []
+        out = []
+        env = {"python_version": runtime or "3.12", "python_full_version": f"{runtime or '3.12'}.0", "extra": ""}
+        for line in self._pypi_deps[key]:
+            try:
+                req = Requirement(line)
+                if req.marker and ("extra" in str(req.marker) or not req.marker.evaluate(env)):
+                    continue
+            except (InvalidRequirement, InvalidMarker):
+                continue
+            out.append((req.name, str(req.specifier)))
+        return out
+
+    def best_for_pin(self, ecosystem: str, name: str, pin: str | None) -> str | None:
+        """The release a project's pin ('==2.11.3', '^4.17.1', '>=1,<2') installs today."""
+        releases = self._releases(ecosystem, name)["releases"]
+        matching = [v for v in releases if self.satisfies(ecosystem, v, pin)]
+        return max(matching, key=_vkey) if matching else None
+
+    def latest_satisfying(self, ecosystem: str, name: str, spec: str | None, runtime: str | None = None) -> str | None:
+        """Newest stable release inside `spec` that runs on `runtime`."""
+        releases = self._releases(ecosystem, name)["releases"]
+        allows = node_allows if ecosystem == "node" else python_allows
+        ok = [v for v, req in releases.items()
+              if self.satisfies(ecosystem, v, spec) and (not runtime or allows(req, runtime))]
+        return max(ok, key=_vkey) if ok else None
 
     def min_runtime(self, ecosystem: str, name: str, version: str) -> str | None:
         """Oldest Python ("3.11") or Node ("20") this release supports; None if it doesn't say."""

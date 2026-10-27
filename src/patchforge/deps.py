@@ -110,6 +110,33 @@ def bump(workdir: Path, library: str, to_version: str, ecosystem: str = "python"
     return changed
 
 
+def pinned(workdir: Path, ecosystem: str) -> dict[str, tuple[str, str]]:
+    """The project's direct dependencies: {normalized name: (name as written, version spec)}."""
+    found: dict[str, tuple[str, str]] = {}
+    if ecosystem == "node":
+        try:
+            data = json.loads((workdir / "package.json").read_text())
+        except (OSError, ValueError):
+            return found
+        for section in NPM_SECTIONS:
+            for name, spec in (data.get(section) or {}).items():
+                if isinstance(spec, str):
+                    found[name] = (name, spec)
+        return found
+
+    lines = []
+    for name in REQUIREMENT_FILES:
+        if (workdir / name).is_file():
+            lines += (workdir / name).read_text().splitlines()
+    if (workdir / "pyproject.toml").is_file():
+        lines += re.findall(r"""["']([A-Za-z0-9][^"'\n]*)["']""", (workdir / "pyproject.toml").read_text())
+    for line in lines:
+        m = _REQ_LINE.match(line.split("#", 1)[0].rstrip())
+        if m and m.group("name"):
+            found.setdefault(normalize(m.group("name")), (m.group("name"), (m.group("spec") or "").replace(" ", "")))
+    return found
+
+
 # --- runtime pin (.python-version / .nvmrc) ------------------------------------------------
 
 def current_runtime(workdir: Path, ecosystem: str) -> str:
