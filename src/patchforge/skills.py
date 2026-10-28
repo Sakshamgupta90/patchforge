@@ -62,14 +62,19 @@ class SkillStore:
 
         "latest" / "unknown" match the newest skill for the library, but only a
         recent one, since "latest" moves over time. A concrete request ("2" or
-        "2.9") matches a skill whose version starts with it.
+        "2.9") matches a skill whose version starts with it. A full release
+        ("2.11.4") matches a skill for the same major.minor ("2.11.3"): patch
+        releases rarely change a migration. The caller keeps the requested
+        version as the pin.
         """
         lib = normalize(library)
         wanted = (to_version or "").strip().lower().lstrip("v")
         candidates = [s for s in self.all() if normalize(s.library) == lib]
         if CONCRETE_VERSION.match(wanted):
+            minor = wanted.split(".")[:2] if wanted.count(".") >= 2 else None
             candidates = [s for s in candidates
-                          if s.to_version == wanted or s.to_version.startswith(wanted + ".")]
+                          if s.to_version == wanted or s.to_version.startswith(wanted + ".")
+                          or (minor and s.to_version.split(".")[:2] == minor)]
         else:
             candidates = [s for s in candidates if time.time() - s.created < self.max_age_s]
         return max(candidates, key=lambda s: s.created, default=None)

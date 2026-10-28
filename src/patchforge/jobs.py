@@ -25,7 +25,8 @@ from typing import Callable, Protocol
 from pydantic import BaseModel
 
 from . import git_ops
-from .contracts import Agent, AgentEvent, AgentTask, Sandbox, SandboxResult
+from .contracts import Agent, AgentEvent, AgentFailed, AgentTask, Sandbox, SandboxResult
+from .guard import FileDiff, check_diff
 from .sandbox.common import IGNORE
 
 log = logging.getLogger("patchforge")
@@ -278,7 +279,7 @@ class JobRunner:
         try:
             self._pipeline(job, tmp)
             job.finish("succeeded")
-        except JobFailed as e:
+        except (JobFailed, AgentFailed) as e:
             job.emit(AgentEvent(stage="error", message=str(e), level="error"))
             job.finish("failed", str(e))
         except Exception as e:  # noqa: BLE001 - report anything to the dashboard
@@ -351,6 +352,12 @@ class JobRunner:
         if not final.passed:
             what = "tests fail" if final.checked == "tests" else f"the {final.checked} check fails"
             raise JobFailed(f"{what} after the patch; refusing to open a PR\n" + final.error_log[-1500:])
+
+        problems = check_diff([FileDiff(p, added, n) for p, added, n in git_ops.staged_diff(workdir)])
+        if problems:
+            emit(AgentEvent(stage="guard", level="error", message="Diff check failed: " + "; ".join(problems),
+                            data={"problems": problems}))
+            raise JobFailed("refusing to open a PR, because " + "; ".join(problems))
 
         job.branch = branch_name(req.instruction, job.id)
         author_name, author_email = self.git_author()

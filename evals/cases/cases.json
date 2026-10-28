@@ -1,0 +1,5 @@
+[
+  {"name": "pydantic-1-to-2", "folder": "pydantic-1-to-2", "instruction": "Upgrade pydantic to v2"},
+  {"name": "flask-2-to-3", "folder": "flask-2-to-3", "instruction": "Upgrade Flask to version 3"},
+  {"name": "express-4-to-5", "folder": "express-4-to-5", "instruction": "Upgrade express to version 5"}
+]

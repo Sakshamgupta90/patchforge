@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 # Stages the platform emits itself. The agent may emit any string, but these
 # are the ones the dashboard knows how to group.
-PLATFORM_STAGES = ("job", "clone", "baseline_tests", "tests", "push", "pr", "done", "error")
+PLATFORM_STAGES = ("job", "clone", "baseline_tests", "tests", "guard", "push", "pr", "done", "error")
 AGENT_STAGES = ("research", "plan", "patch", "retry", "skill")
 
 
@@ -84,6 +84,10 @@ class AgentOutput(BaseModel):
     changed_files: list[str]
     summary: str  # markdown; goes into the PR body
     test_results: SandboxResult | None = None
+
+
+class AgentFailed(Exception):
+    """The agent stopped on purpose, with a reason worth showing the user as is (no stack trace)."""
 
 
 class Agent(Protocol):

@@ -116,3 +116,48 @@ def test_project_without_tests_gets_a_draft_pr(fake_github):
 def test_verified_pr_is_not_a_draft(fake_github):
     job = runner(fake_github, sandbox_factory=AlwaysPassSandbox).run_sync(JobRequest(repo="me/demo", instruction="x"))
     assert fake_github.prs[0]["draft"] is False and job.snapshot()["verified"] is True
+
+
+class TouchesTests:
+    def __init__(self, rel, text="x = 1\n"):
+        self.rel, self.text = rel, text
+
+    def run(self, task, workdir, sandbox, emit):
+        target = workdir / self.rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(self.text)
+        return AgentOutput(changed_files=[self.rel], summary="s")
+
+
+def guarded(fake_github, remote_repo, rel, text="x = 1\n"):
+    return runner(fake_github, sandbox_factory=AlwaysPassSandbox, agent=TouchesTests(rel, text)).run_sync(
+        JobRequest(repo="me/demo", instruction="x"))
+
+
+def test_guard_blocks_edits_to_tests(fake_github, remote_repo):
+    job = guarded(fake_github, remote_repo, "tests/test_new.py")
+    assert job.status == "failed" and "changes test files" in job.error
+    assert fake_github.prs == [] and "patchforge/" not in git("branch", "--list", cwd=remote_repo)
+    assert any(e["stage"] == "guard" and e["level"] == "error" for e in job.events)
+
+
+def test_guard_blocks_workflow_edits(fake_github, remote_repo):
+    job = guarded(fake_github, remote_repo, ".github/workflows/ci.yml")
+    assert job.status == "failed" and "GitHub configuration" in job.error
+
+
+def test_guard_blocks_secret_looking_content(fake_github, remote_repo):
+    job = guarded(fake_github, remote_repo, "app/conf.py", 'API_KEY = "abcdefghijklmnopqrstuvwxyz0123456789"\n')
+    assert job.status == "failed" and "looks like a hard-coded secret" in job.error
+    assert fake_github.prs == []
+
+
+def test_guard_blocks_huge_diffs(fake_github, remote_repo, monkeypatch):
+    monkeypatch.setattr("patchforge.guard.MAX_CHANGED_LINES", 5)
+    job = guarded(fake_github, remote_repo, "app/big.py", "x = 1\n" * 50)
+    assert job.status == "failed" and "lines (limit 5)" in job.error
+
+
+def test_guard_lets_a_normal_patch_through(fake_github, remote_repo):
+    job = guarded(fake_github, remote_repo, "app/new.py")
+    assert job.status == "succeeded", job.error

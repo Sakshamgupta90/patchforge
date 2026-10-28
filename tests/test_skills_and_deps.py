@@ -77,3 +77,11 @@ def test_bump_pyproject(tmp_path):
 def test_bump_nothing_to_do(tmp_path):
     (tmp_path / "requirements.txt").write_text("requests==2.0\n")
     assert deps.bump(tmp_path, "pydantic", "2.9.2") == []
+
+
+def test_full_release_matches_a_skill_for_the_same_minor(tmp_path):
+    store = SkillStore(tmp_path)
+    store.save(SPEC, library="pydantic", from_version="1.10", to_version="2.9.2")
+    assert store.find("pydantic", "2.9.5").to_version == "2.9.2"  # patch releases share a migration
+    assert store.find("pydantic", "2.10.1") is None  # a new minor can break things: research again
+    assert store.find("pydantic", "3.9.2") is None

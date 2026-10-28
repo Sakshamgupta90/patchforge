@@ -181,3 +181,17 @@ Terminal alternative (uses `PATCHFORGE_API_KEY` instead of sign-in): `python scr
   pydantic, Flask, Django, pandas, Express, node-security, TypeScript and React all pass their tests after the upgrade.
 - The Nebius sandbox hasn't been run against a live Nebius project yet (Docker is the default).
 - Jobs run in-process (2 at a time); history is JSON files, not a database.
+
+## Checks before a PR, and measuring changes
+
+- **Diff check.** After the final tests pass and before anything is pushed, the job refuses to open a PR whose diff
+  edits test files or `.github/`, adds something that looks like a key or token, or touches more than
+  `PATCHFORGE_MAX_FILES` files / `PATCHFORGE_MAX_CHANGED_LINES` lines (lockfiles don't count).
+- **No research, no upgrade.** If the web search finds no pages at all, the job stops instead of patching from the model's
+  memory (`PATCHFORGE_ALLOW_UNRESEARCHED=1` turns that off). A saved skill needs no search.
+- **Cost.** Web searches are priced in Tavily credits and counted in the job's cost. `PATCHFORGE_MAX_COST_USD` stops the
+  retries once a job passes that amount.
+- **Eval.** `python scripts/eval.py` runs the cases in `evals/cases` with the real models and an empty skills folder,
+  prints pass / retries / tokens / searches / cost per case, and saves the results. `--repeat 3` smooths out model
+  variation; `--compare evals/results/<old>.json` shows the difference between two versions.
+

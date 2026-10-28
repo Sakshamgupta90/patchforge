@@ -86,3 +86,22 @@ def commit_all(repo: Path, message: str, *, author_name: str, author_email: str)
 
 def push(repo: Path, branch: str, *, token: str | None = None, remote: str = "origin") -> None:
     _git(["push", "--quiet", remote, f"HEAD:refs/heads/{branch}"], cwd=repo, token=token)
+
+
+def staged_diff(repo: Path) -> list[tuple[str, list[str], int]]:
+    """Every pending change as (path, added lines, added + removed line count). Stages everything first."""
+    _git(["add", "--all"], cwd=repo)
+    counts = {}
+    for line in _git(["diff", "--cached", "--numstat", "--no-renames", "-z"], cwd=repo).split("\0"):
+        parts = line.split("\t", 2)
+        if len(parts) == 3:
+            counts[parts[2]] = sum(int(n) for n in parts[:2] if n.isdigit())  # "-" for binary files
+    added: dict[str, list[str]] = {}
+    path = None
+    for line in _git(["diff", "--cached", "-U0", "--no-color", "--no-renames"], cwd=repo).splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:]
+            added.setdefault(path, [])
+        elif line.startswith("+") and not line.startswith("+++") and path:
+            added[path].append(line[1:])
+    return [(p, added.get(p, []), n) for p, n in counts.items()]

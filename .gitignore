@@ -8,3 +8,4 @@ __pycache__/
 .patchforge-work/
 .patchforge-data/
 skills/
+evals/results/
